@@ -20,7 +20,7 @@ In this proposal, we introduce the Kubernetes API PodDecoration, which aims to p
 
 The PodDecoration API is designed as follows:
 
-``` yaml
+```yaml
 apiVersion: apps.kusionstack.io/v1alpha1
 kind: PodDecoration
 metadata:
@@ -38,10 +38,11 @@ spec:
       - "0"
       - "1"
   updateStrategy:
-    rollingUpdate:      # Provide several ways to select Pods to update new revision.
-      byPartition:
-        partition: 2
-      bySelector:
+    rollingUpdate:       # Provide several ways to select Pods to update new revision.
+      collaSets:
+      - name: callaSet-a
+        partition: 2     
+      selector:		     # by partition or selector
         matchLabels:
           app: foo
         matchExpressions:
@@ -55,44 +56,59 @@ spec:
     weight: 10      # In same group, heavier PD has higher priority to inject exclusively.
   template:
     metadata:
+    - patchPolicy: Retain    # Retain | Overwrite | MergePatchJson, default Retain
       labels:
         extra-label: label-value
         existing-label: label-value
-    spec:
-      containers:                         # Update by replace. If there is a container with the same name, overwrite it.
-      - name: sidecar
-        image: nginx:1.23.0
-        injectPolicy: BeforeAppContainer  # Position to inject.
-      appContainers:                      # Update by merge. If a name indicated, then merge to the container with the matched name, otherwise update the one indicated by its policy.
-      - image: nginx: 1.23.0
-        env:
-        - name: SIDECAR_INJECTED
-          value: "true"
-        volumeMounts:
-        - name: foo
-          mountPath: /tmp/foo
-        targetSelectPolicy: AllAppContainers  # Indicates this configuration should be injected into all app containers.
-      volumes:
+      annotations:
+        extra-anno: anno-value
+    initContainers:                   
+    - name: init
+      image: init-docker:0.1.0
+    primaryContainers:               # Overwrite old container
+    - targetPolicy: ByName           # ByName | All | First | Last, default by name
+      name: existing-container-name  
+      image: new-image:1.1.0 
+      env:
+      - name: SIDECAR_INJECTED
+        value: "true"
+      volumeMounts:
       - name: foo
-        hostPath:
-          path: /tmp/foo
-      affinity:
-        overrideAffinity:     # Update by replace
-          nodeAffinity:
-          podAffinity:
-          podAntiAffinity:
-        nodeSelectorTerm:     # Update by merge
-          matchExpressions:
-          matchFields:
-      tolerations:
-      - key: schedule         # Replace item with same key
-        operator: Equal
-        value: foo
-      runtimeClassName: rund
+        mountPath: /tmp/foo
+    containers:                             # List of sidecar containers to be injected into the selected pod
+    - injectPolicy: BeforePrimaryContainer
+      name: nginx       
+      image: nginx:1.23.0
+    volumes:
+    - name: foo
+      hostPath:
+        path: /tmp/foo
+    affinity:
+      overrideAffinity:     # Update by replace
+        nodeAffinity:
+        podAffinity:
+        podAntiAffinity:
+      nodeSelectorTerms:     # Update by merge
+      - matchExpressions:
+        matchFields:
+    tolerations:
+    - key: schedule         # Replace item with same key
+      operator: Equal
+      value: foo
+    runtimeClassName: rund
 status:
-  affectedWorkloads:
-  - name: collaset-a
-  - name: collaset-b
+  observedGeneration: 1
+  currentRevision: 123
+  updatedRevision: 124
+  matchedPods: 2
+  updatedPods: 1
+  details:
+  - collaSet: collaSet-a
+    affectedReplicas: 2
+    pods:
+    - name: collaSet-a-00     # Updated
+    - name: collaSet-a-01     
+      revision: 123    # Old revision
 ```
 
 ## Implementation

@@ -195,7 +195,7 @@ type PodTransitionRuleStatus struct {
 
 	// Details contains all pods podtransitionrule details
 	// +optional
-	Details []*Detail `json:"details,omitempty"`
+	Details []*PodTransitionDetail `json:"details,omitempty"`
 }
 
 // RuleState defines the resource info in webhook processing progress.
@@ -238,7 +238,7 @@ type ItemStatus struct {
 	TraceId string `json:"traceId,omitempty"`
 }
 
-type Detail struct {
+type PodTransitionDetail struct {
 	Name        string       `json:"name,omitempty"`
 	Stage       string       `json:"stage,omitempty"`
 	Passed      bool         `json:"passed"`

@@ -21,7 +21,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -56,15 +59,27 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	if err != nil {
 		return err
 	}
-
+	managerClient := mgr.GetClient()
 	// Watch update of Pods which can be selected by PodDecoration
-	podToPodDecorationMapper := &podToPodDecorationMapper{Client: mgr.GetClient()}
-	err = c.Watch(&source.Kind{Type: &corev1.Pod{}}, handler.EnqueueRequestsFromMapFunc(podToPodDecorationMapper.process))
-	if err != nil {
-		return err
-	}
+	err = c.Watch(&source.Kind{Type: &corev1.Pod{}}, handler.EnqueueRequestsFromMapFunc(func(podObject client.Object) []reconcile.Request {
+		pdList := &appsv1alpha1.PodDecorationList{}
+		if listErr := managerClient.List(context.TODO(), pdList, client.InNamespace(podObject.GetNamespace())); listErr != nil {
+			return nil
+		}
+		var requests []reconcile.Request
+		for _, pd := range pdList.Items {
+			selector, err := metav1.LabelSelectorAsSelector(pd.Spec.Selector)
+			if err != nil {
+				continue
+			}
 
-	return nil
+			if selector.Matches(labels.Set(podObject.GetLabels())) {
+				requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: podObject.GetNamespace(), Name: podObject.GetName()}})
+			}
+		}
+		return requests
+	}))
+	return err
 }
 
 var _ reconcile.Reconciler = &ReconcilePodDecoration{}
