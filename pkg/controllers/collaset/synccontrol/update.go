@@ -25,10 +25,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	appsv1alpha1 "kusionstack.io/operating/apis/apps/v1alpha1"
 	"kusionstack.io/operating/pkg/controllers/collaset/utils"
 	collasetutils "kusionstack.io/operating/pkg/controllers/collaset/utils"
 	controllerutils "kusionstack.io/operating/pkg/controllers/utils"
+	utilspoddecoration "kusionstack.io/operating/pkg/controllers/utils/poddecoration"
 	"kusionstack.io/operating/pkg/controllers/utils/podopslifecycle"
 )
 
@@ -40,26 +42,39 @@ type PodUpdateInfo struct {
 	// carry the pod's current revision
 	CurrentRevision *appsv1.ControllerRevision
 
+	// indicates effected PodDecorations changed
+	PodDecorationChanged bool
+
+	OldPatchDecorationFunc func(pod *corev1.Pod) error
+	NewPatchDecorationFunc func(pod *corev1.Pod) error
+
 	// indicates the PodOpsLifecycle is started.
 	isDuringOps bool
 }
 
-func attachPodUpdateInfo(pods []*collasetutils.PodWrapper, revisions []*appsv1.ControllerRevision, updatedRevision *appsv1.ControllerRevision) []*PodUpdateInfo {
+func attachPodUpdateInfo(pods []*collasetutils.PodWrapper, resource *collasetutils.RelatedResources) []*PodUpdateInfo {
 	podUpdateInfoList := make([]*PodUpdateInfo, len(pods))
 
 	for i, pod := range pods {
-		updateInfo := &PodUpdateInfo{PodWrapper: pod}
+		updateInfo := &PodUpdateInfo{
+			PodWrapper: pod,
+		}
+
+		decorations := utilspoddecoration.GetPodEffectiveDecorations(pod.Pod, resource.PodDecorations)
+		if utilspoddecoration.ShouldUpdateDecorationInfo(pod.Pod, decorations) {
+
+		}
 
 		// decide this pod current revision, or nil if not indicated
 		if pod.Labels != nil {
 			currentRevisionName, exist := pod.Labels[appsv1.ControllerRevisionHashLabelKey]
 			if exist {
-				if currentRevisionName == updatedRevision.Name {
+				if currentRevisionName == resource.UpdatedRevision.Name {
 					updateInfo.IsUpdatedRevision = true
-					updateInfo.CurrentRevision = updatedRevision
+					updateInfo.CurrentRevision = resource.UpdatedRevision
 				} else {
 					updateInfo.IsUpdatedRevision = false
-					for _, rv := range revisions {
+					for _, rv := range resource.Revisions {
 						if currentRevisionName == rv.Name {
 							updateInfo.CurrentRevision = rv
 						}
@@ -118,20 +133,17 @@ func (o orderByDefault) Swap(i, j int) { o[i], o[j] = o[j], o[i] }
 
 func (o orderByDefault) Less(i, j int) bool {
 	l, r := o[i], o[j]
-	if l.IsUpdatedRevision && !r.IsUpdatedRevision {
-		return true
+	if l.IsUpdatedRevision != r.IsUpdatedRevision {
+		return l.IsUpdatedRevision
 	}
 
-	if !l.IsUpdatedRevision && r.IsUpdatedRevision {
-		return false
+	if l.isDuringOps != r.isDuringOps {
+		return l.isDuringOps
 	}
 
-	if l.isDuringOps && !r.isDuringOps {
-		return true
-	}
-
-	if !l.isDuringOps && r.isDuringOps {
-		return false
+	if controllerutils.BeforeReady(l.Pod) == controllerutils.BeforeReady(r.Pod) &&
+		l.PodDecorationChanged != r.PodDecorationChanged {
+		return l.PodDecorationChanged
 	}
 
 	return controllerutils.ComparePod(l.Pod, r.Pod)
@@ -182,6 +194,13 @@ func (u *InPlaceIfPossibleUpdater) AnalyseAndGetUpdatedPod(cls *appsv1alpha1.Col
 		return false, false, nil, fmt.Errorf("fail to build Pod from updated revision %s: %s", updatedRevision.Name, err)
 	}
 
+	// TODO: Remove duplicates between patch func
+	// patch PodDecorations
+	if podUpdateInfo.PodDecorationChanged {
+		podUpdateInfo.OldPatchDecorationFunc(currentPod)
+		podUpdateInfo.NewPatchDecorationFunc(updatedPod)
+	}
+
 	// 2. compare current and updated pods. Only pod image and metadata are supported to update in-place
 	// TODO: use cache
 	inPlaceUpdateSupport, onlyMetadataChanged = u.diffPod(currentPod, updatedPod)
@@ -192,6 +211,9 @@ func (u *InPlaceIfPossibleUpdater) AnalyseAndGetUpdatedPod(cls *appsv1alpha1.Col
 
 	inPlaceUpdateSupport = true
 	updatedPod, err = controllerutils.PatchToPod(currentPod, updatedPod, podUpdateInfo.Pod)
+
+	// TODO: patch PD
+	//
 
 	if onlyMetadataChanged {
 		if updatedPod.Annotations != nil {

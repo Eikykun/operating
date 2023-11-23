@@ -5403,89 +5403,68 @@ spec:
                 items:
                   type: string
                 type: array
-              availableReplicas:
-                description: The number of available replicas (ready for at least
-                  minReadySeconds) for this replica set.
-                format: int32
-                type: integer
               collisionCount:
                 description: Count of hash collisions for the PodDecoration. The PodDecoration
                   controller uses this field as a collision avoidance mechanism when
                   it needs to create the name for the newest ControllerRevision.
                 format: int32
                 type: integer
-              conditions:
-                description: Represents the latest available observations of a PodDecoration's
-                  current state.
-                items:
-                  properties:
-                    lastTransitionTime:
-                      description: Last time the condition transitioned from one status
-                        to another.
-                      format: date-time
-                      type: string
-                    message:
-                      description: A human readable message indicating details about
-                        the transition.
-                      type: string
-                    reason:
-                      description: The reason for the condition's last transition.
-                      type: string
-                    status:
-                      description: Status of the condition, one of True, False, Unknown.
-                      type: string
-                    type:
-                      description: Type of in place set condition.
-                      type: string
-                  type: object
-                type: array
               currentRevision:
                 description: CurrentRevision, if not empty, indicates the version
                   of the PodDecoration.
                 type: string
+              details:
+                items:
+                  properties:
+                    affectedReplicas:
+                      format: int32
+                      type: integer
+                    collaSet:
+                      type: string
+                    pods:
+                      items:
+                        properties:
+                          name:
+                            type: string
+                          revision:
+                            type: string
+                        type: object
+                      type: array
+                  type: object
+                type: array
+              isEffective:
+                description: IsEffective indicates PodDecoration is the only one that
+                  takes effect in the same group
+                type: boolean
+              matchedPods:
+                description: MatchedPods is the number of Pods whose labels are matched
+                  with this SidecarSet's selector and are created after sidecarset
+                  creates
+                format: int32
+                type: integer
               observedGeneration:
                 description: ObservedGeneration is the most recent generation observed
                   for this PodDecoration. It corresponds to the PodDecoration's generation,
                   which is updated on mutation by the API Server.
                 format: int64
                 type: integer
-              operatingReplicas:
-                description: OperatingReplicas indicates the number of pods during
-                  pod ops lifecycle and not finish update-phase.
+              updatedPods:
+                description: UpdatedPods is the number of matched Pods that are injected
+                  with the latest SidecarSet's containers
                 format: int32
                 type: integer
-              readyReplicas:
-                description: ReadyReplicas indicates the number of the pod with ready
-                  condition
-                format: int32
-                type: integer
-              replicas:
-                description: Replicas is the most recently observed number of replicas.
-                format: int32
-                type: integer
-              scheduledReplicas:
-                description: the number of scheduled replicas for the PodDecoration.
-                format: int32
-                type: integer
-              updatedAvailableReplicas:
-                description: UpdatedAvailableReplicas indicates the number of available
-                  updated revision replicas for this PodDecoration. A pod is updated
-                  available means the pod is ready for updated revision and accessible
-                format: int32
-                type: integer
-              updatedReadyReplicas:
-                description: UpdatedReadyReplicas indicates the number of the pod
-                  with updated revision and ready condition
-                format: int32
-                type: integer
-              updatedReplicas:
-                description: The number of pods in updated version.
+              updatedReadyPods:
+                description: UpdatedReadyPods is the number of matched pods that updated
+                  and ready
                 format: int32
                 type: integer
               updatedRevision:
                 description: UpdatedRevision, if not empty, indicates the version
                   of the PodDecoration currently updated.
                 type: string
+            required:
+            - matchedPods
+            - updatedPods
             type: object
         type: object
     served: true

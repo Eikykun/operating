@@ -17,39 +17,50 @@ limitations under the License.
 package poddecoration
 
 import (
+	"errors"
+
 	corev1 "k8s.io/api/core/v1"
 
 	appsv1alpha1 "kusionstack.io/operating/apis/apps/v1alpha1"
+	"kusionstack.io/operating/pkg/controllers/utils/poddecoration/patch"
 )
 
 func PatchPodDecoration(pod *corev1.Pod, template *appsv1alpha1.PodDecorationPodTemplate) (err error) {
 	if len(template.Metadata) > 0 {
-		if _, err = PatchMetadata(&pod.ObjectMeta, template.Metadata); err != nil {
-			return
-		}
+		err = patch.PatchMetadata(&pod.ObjectMeta, template.Metadata)
 	}
 	if len(template.InitContainers) > 0 {
-		AddInitContainers(pod, template.InitContainers)
+		patch.AddInitContainers(pod, template.InitContainers)
 	}
 
 	if len(template.PrimaryContainers) > 0 {
-		PrimaryContainerPatch(pod, template.PrimaryContainers)
+		patch.PrimaryContainerPatch(pod, template.PrimaryContainers)
 	}
 
 	if len(template.Containers) > 0 {
-		ContainersPatch(pod, template.Containers)
+		patch.ContainersPatch(pod, template.Containers)
 	}
 
 	if len(template.Volumes) > 0 {
-		pod.Spec.Volumes = MergeVolumes(pod.Spec.Volumes, template.Volumes)
+		pod.Spec.Volumes = patch.MergeVolumes(pod.Spec.Volumes, template.Volumes)
 	}
 
 	if template.Affinity != nil {
-		PatchAffinity(pod, template.Affinity)
+		patch.PatchAffinity(pod, template.Affinity)
 	}
 
 	if template.Tolerations != nil {
-		pod.Spec.Tolerations = MergeTolerations(pod.Spec.Tolerations, template.Tolerations)
+		pod.Spec.Tolerations = patch.MergeTolerations(pod.Spec.Tolerations, template.Tolerations)
 	}
-	return nil
+	return
+}
+
+func PatchListOfDecorations(pod *corev1.Pod, podDecorations []*appsv1alpha1.PodDecoration) (err error) {
+	for i := range podDecorations {
+		if patchErr := PatchPodDecoration(pod, &podDecorations[i].Spec.Template); patchErr != nil {
+			err = errors.Join(err, patchErr)
+		}
+	}
+	SetDecorationInfo(pod, podDecorations)
+	return
 }

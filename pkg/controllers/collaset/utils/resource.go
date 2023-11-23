@@ -14,4 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package poddecoration
+package utils
+
+import (
+	appsv1 "k8s.io/api/apps/v1"
+
+	appsv1alpha1 "kusionstack.io/operating/apis/apps/v1alpha1"
+)
+
+type RelatedResources struct {
+	Revisions       []*appsv1.ControllerRevision
+	CurrentRevision *appsv1.ControllerRevision
+	UpdatedRevision *appsv1.ControllerRevision
+
+	// collaSet related PodDecoration
+	PodDecorations []*appsv1alpha1.PodDecoration
+
+	NewStatus *appsv1alpha1.CollaSetStatus
+}

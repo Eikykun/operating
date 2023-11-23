@@ -131,6 +131,12 @@ func GetPodsPrefix(controllerName string) string {
 	return prefix
 }
 
+func BeforeReady(po *corev1.Pod) bool {
+	return len(po.Spec.NodeName) == 0 ||
+		po.Status.Phase != corev1.PodRunning ||
+		!IsPodReady(po)
+}
+
 func ComparePod(l, r *corev1.Pod) bool {
 	// 1. Unassigned < assigned
 	// If only one of the pods is unassigned, the unassigned one is smaller

@@ -14,11 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package poddecoration
+package patch
 
 import (
-	"reflect"
-
 	jsonpatch "github.com/evanphx/json-patch"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -26,14 +24,13 @@ import (
 )
 
 // PatchMetadata patch annotations and labels
-func PatchMetadata(oldMetadata *metav1.ObjectMeta, patches []*appsv1alpha1.PodDecorationPodTemplateMeta) (updated bool, err error) {
+func PatchMetadata(oldMetadata *metav1.ObjectMeta, patches []*appsv1alpha1.PodDecorationPodTemplateMeta) (err error) {
 	if oldMetadata.Annotations == nil {
 		oldMetadata.Annotations = map[string]string{}
 	}
 	if oldMetadata.Labels == nil {
 		oldMetadata.Labels = map[string]string{}
 	}
-	oldData := oldMetadata.DeepCopy()
 	for _, patch := range patches {
 		switch patch.PatchPolicy {
 		case appsv1alpha1.RetainMetadata, "":
@@ -46,8 +43,6 @@ func PatchMetadata(oldMetadata *metav1.ObjectMeta, patches []*appsv1alpha1.PodDe
 			}
 		}
 	}
-	updated = !reflect.DeepEqual(oldData.Annotations, oldMetadata.Annotations) ||
-		!reflect.DeepEqual(oldData.Labels, oldMetadata.Labels)
 	return
 }
 

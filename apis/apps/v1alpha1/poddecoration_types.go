@@ -231,6 +231,9 @@ type PodDecorationStatus struct {
 	// UpdatedReadyPods is the number of matched pods that updated and ready
 	UpdatedReadyPods int32 `json:"updatedReadyPods,omitempty"`
 
+	// IsEffective indicates PodDecoration is the only one that takes effect in the same group
+	IsEffective *bool `json:"isEffective,omitempty"`
+
 	// the number of scheduled replicas for the PodDecoration.
 	// +optional
 	//ScheduledReplicas int32 `json:"scheduledReplicas,omitempty"`

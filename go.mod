@@ -5,7 +5,6 @@ go 1.19
 require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/docker/distribution v2.8.2+incompatible
-	github.com/emirpasic/gods v1.18.1
 	github.com/evanphx/json-patch v4.11.0+incompatible
 	github.com/go-logr/logr v1.2.4
 	github.com/google/uuid v1.3.0

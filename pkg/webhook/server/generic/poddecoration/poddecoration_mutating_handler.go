@@ -41,3 +41,7 @@ func NewMutatingHandler() *MutatingHandler {
 func (h *MutatingHandler) Handle(ctx context.Context, req admission.Request) (resp admission.Response) {
 	return admission.Allowed("")
 }
+
+func (h *MutatingHandler) mutateCreate() {
+	//set default InjectionStrategy.Weight
+}
