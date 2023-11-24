@@ -171,17 +171,17 @@ func (r *CollaSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	requeueAfter, newStatus, err := r.DoReconcile(ctx, instance, resources)
 	// update status anyway
 	if err := r.updateStatus(ctx, instance, newStatus); err != nil {
-		return ctrl.Result{RequeueAfter: requeueAfter}, fmt.Errorf("fail to update status of CollaSet %s: %s", req, err)
+		return requeueResult(requeueAfter), fmt.Errorf("fail to update status of CollaSet %s: %s", req, err)
 	}
 
-	return ctrl.Result{RequeueAfter: requeueAfter}, err
+	return requeueResult(requeueAfter), err
 }
 
 func (r *CollaSetReconciler) DoReconcile(
 	ctx context.Context,
 	instance *appsv1alpha1.CollaSet,
 	resources *collasetutils.RelatedResources) (
-	time.Duration, *appsv1alpha1.CollaSetStatus, error) {
+	*time.Duration, *appsv1alpha1.CollaSetStatus, error) {
 	podWrappers, requeueAfter, syncErr := r.doSync(ctx, instance, resources)
 	return requeueAfter, calculateStatus(instance, resources, podWrappers, syncErr), syncErr
 }
@@ -194,25 +194,30 @@ func (r *CollaSetReconciler) doSync(
 	ctx context.Context,
 	instance *appsv1alpha1.CollaSet,
 	resources *collasetutils.RelatedResources) (
-	[]*collasetutils.PodWrapper, time.Duration, error) {
+	[]*collasetutils.PodWrapper, *time.Duration, error) {
 
-	synced, podWrappers, ownedIDs, err := r.syncControl.SyncPods(instance, resources)
+	synced, podWrappers, ownedIDs, err := r.syncControl.SyncPods(ctx, instance, resources)
 	if err != nil || synced {
-		return podWrappers, 0, err
+		return podWrappers, nil, err
 	}
 
 	resources.PodDecorations, err = utilspoddecoration.GetEffectiveDecorationsByCollaSet(ctx, r.Client, instance)
 	if err != nil {
-		return podWrappers, 0, err
+		return podWrappers, nil, err
+	}
+	for _, pd := range resources.PodDecorations {
+		if pd.Status.ObservedGeneration != pd.Generation {
+
+		}
 	}
 
-	scaling, scaleRequeueAfter, err := r.syncControl.Scale(instance, resources, podWrappers, ownedIDs)
+	scaling, scaleRequeueAfter, err := r.syncControl.Scale(ctx, instance, resources, podWrappers, ownedIDs)
 	if err != nil || scaling {
 		return podWrappers, scaleRequeueAfter, err
 	}
 
-	_, updateRequeueAfter, err := r.syncControl.Update(instance, resources, podWrappers, ownedIDs)
-	if updateRequeueAfter > 0 && (scaleRequeueAfter == 0 || updateRequeueAfter < scaleRequeueAfter) {
+	_, updateRequeueAfter, err := r.syncControl.Update(ctx, instance, resources, podWrappers, ownedIDs)
+	if updateRequeueAfter != nil && (scaleRequeueAfter == nil || *updateRequeueAfter < *scaleRequeueAfter) {
 		return podWrappers, updateRequeueAfter, err
 	}
 
@@ -304,4 +309,18 @@ func (r *CollaSetReconciler) reclaimResourceContext(cls *appsv1alpha1.CollaSet) 
 	}
 
 	return controllerutils.RemoveFinalizer(context.TODO(), r.Client, cls, preReclaimFinalizer)
+}
+
+func requeueResult(requeueTime *time.Duration) reconcile.Result {
+	if requeueTime != nil {
+		if *requeueTime == 0 {
+			return reconcile.Result{Requeue: true}
+		}
+		return reconcile.Result{RequeueAfter: *requeueTime}
+	}
+	return reconcile.Result{}
+}
+
+func duration(tm time.Duration) *time.Duration {
+	return &tm
 }

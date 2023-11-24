@@ -17,6 +17,7 @@ limitations under the License.
 package synccontrol
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -45,18 +46,22 @@ const (
 )
 
 type Interface interface {
-	SyncPods(instance *appsv1alpha1.CollaSet, resources *collasetutils.RelatedResources) (
+	SyncPods(ctx context.Context,
+		instance *appsv1alpha1.CollaSet,
+		resources *collasetutils.RelatedResources) (
 		bool, []*collasetutils.PodWrapper, map[int]*appsv1alpha1.ContextDetail, error)
 
-	Scale(instance *appsv1alpha1.CollaSet,
+	Scale(ctx context.Context,
+		instance *appsv1alpha1.CollaSet,
 		resources *collasetutils.RelatedResources,
 		filteredPods []*collasetutils.PodWrapper,
-		ownedIDs map[int]*appsv1alpha1.ContextDetail) (bool, time.Duration, error)
+		ownedIDs map[int]*appsv1alpha1.ContextDetail) (bool, *time.Duration, error)
 
-	Update(instance *appsv1alpha1.CollaSet,
+	Update(ctx context.Context,
+		instance *appsv1alpha1.CollaSet,
 		resources *collasetutils.RelatedResources,
 		filteredPods []*collasetutils.PodWrapper,
-		ownedIDs map[int]*appsv1alpha1.ContextDetail) (bool, time.Duration, error)
+		ownedIDs map[int]*appsv1alpha1.ContextDetail) (bool, *time.Duration, error)
 }
 
 func NewRealSyncControl(client client.Client, logger logr.Logger, podControl podcontrol.Interface, recorder record.EventRecorder) *RealSyncControl {
@@ -77,6 +82,7 @@ type RealSyncControl struct {
 
 // SyncPods is used to reclaim Pod instance ID
 func (sc *RealSyncControl) SyncPods(
+	ctx context.Context,
 	instance *appsv1alpha1.CollaSet,
 	resources *collasetutils.RelatedResources) (
 	bool, []*collasetutils.PodWrapper, map[int]*appsv1alpha1.ContextDetail, error) {
@@ -156,13 +162,14 @@ func (sc *RealSyncControl) SyncPods(
 }
 
 func (sc *RealSyncControl) Scale(
+	ctx context.Context,
 	cls *appsv1alpha1.CollaSet,
 	resources *collasetutils.RelatedResources,
 	podWrappers []*collasetutils.PodWrapper,
-	ownedIDs map[int]*appsv1alpha1.ContextDetail) (bool, time.Duration, error) {
+	ownedIDs map[int]*appsv1alpha1.ContextDetail) (bool, *time.Duration, error) {
 
 	logger := sc.logger.WithValues("collaset", commonutils.ObjectKeyString(cls))
-	var recordedRequeueAfter time.Duration
+	var recordedRequeueAfter *time.Duration
 
 	diff := int(realValue(cls.Spec.Replicas)) - len(podWrappers)
 	scaling := false
@@ -269,9 +276,9 @@ func (sc *RealSyncControl) Scale(
 				continue
 			}
 
-			if requeueAfter > 0 {
+			if requeueAfter != nil {
 				sc.recorder.Eventf(podWrapper.Pod, corev1.EventTypeNormal, "PodScaleInLifecycle", "delay Pod scale in for %d seconds", requeueAfter.Seconds())
-				if recordedRequeueAfter == 0 || requeueAfter < recordedRequeueAfter {
+				if recordedRequeueAfter == nil || *requeueAfter < *recordedRequeueAfter {
 					recordedRequeueAfter = requeueAfter
 				}
 
@@ -376,13 +383,14 @@ func extractAvailableContexts(diff int, ownedIDs map[int]*appsv1alpha1.ContextDe
 }
 
 func (sc *RealSyncControl) Update(
+	ctx context.Context,
 	cls *appsv1alpha1.CollaSet,
 	resources *collasetutils.RelatedResources,
 	podWrapers []*collasetutils.PodWrapper,
-	ownedIDs map[int]*appsv1alpha1.ContextDetail) (bool, time.Duration, error) {
+	ownedIDs map[int]*appsv1alpha1.ContextDetail) (bool, *time.Duration, error) {
 
 	logger := sc.logger.WithValues("collaset", commonutils.ObjectKeyString(cls))
-	var recordedRequeueAfter time.Duration
+	var recordedRequeueAfter *time.Duration
 	// 1. scan and analysis pods update info
 	podUpdateInfos := attachPodUpdateInfo(podWrapers, resources)
 
@@ -424,7 +432,7 @@ func (sc *RealSyncControl) Update(
 	updating = updating || succCount > 0
 	if err != nil {
 		collasetutils.AddOrUpdateCondition(resources.NewStatus, appsv1alpha1.CollaSetUpdate, err, "UpdateFailed", err.Error())
-		return updating, recordedRequeueAfter, err
+		return updating, nil, err
 	} else {
 		collasetutils.AddOrUpdateCondition(resources.NewStatus, appsv1alpha1.CollaSetUpdate, nil, "Updated", "")
 	}
@@ -438,9 +446,9 @@ func (sc *RealSyncControl) Update(
 			continue
 		}
 
-		if requeueAfter > 0 {
+		if requeueAfter != nil {
 			sc.recorder.Eventf(podInfo, corev1.EventTypeNormal, "PodUpdateLifecycle", "delay Pod update for %d seconds", requeueAfter.Seconds())
-			if recordedRequeueAfter == 0 || requeueAfter < recordedRequeueAfter {
+			if recordedRequeueAfter == nil || *requeueAfter < *recordedRequeueAfter {
 				recordedRequeueAfter = requeueAfter
 			}
 			continue
@@ -451,7 +459,7 @@ func (sc *RealSyncControl) Update(
 			ownedIDs[podInfo.ID].Put(podcontext.RevisionContextDataKey, resources.UpdatedRevision.Name)
 		}
 
-		if podInfo.IsUpdatedRevision {
+		if podInfo.IsUpdatedRevision && !podInfo.PodDecorationChanged {
 			continue
 		}
 
@@ -478,12 +486,12 @@ func (sc *RealSyncControl) Update(
 	}
 
 	// 6. update Pod
-	updater := newPodUpdater(cls)
+	updater := newPodUpdater(ctx, sc.client, cls)
 	succCount, err = controllerutils.SlowStartBatch(len(podCh), controllerutils.SlowStartInitialBatchSize, false, func(_ int, _ error) error {
 		podInfo := <-podCh
 
 		// analyse Pod to get update information
-		inPlaceSupport, onlyMetadataChanged, updatedPod, err := updater.AnalyseAndGetUpdatedPod(cls, resources.UpdatedRevision, podInfo)
+		inPlaceSupport, onlyMetadataChanged, updatedPod, err := updater.AnalyseAndGetUpdatedPod(resources.UpdatedRevision, podInfo)
 		if err != nil {
 			return fmt.Errorf("fail to analyse pod %s/%s in-place update support: %s", podInfo.Namespace, podInfo.Name, err)
 		}

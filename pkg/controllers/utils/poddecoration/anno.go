@@ -122,7 +122,7 @@ func GetPodDecorationFromRevision(revision *appsv1.ControllerRevision) (*appsv1a
 	return podDecoration, nil
 }
 
-func GetPodDecorationsFromPod(ctx context.Context, c client.Client, pod *corev1.Pod) (podDecorations []*appsv1alpha1.PodDecoration, err error) {
+func GetPodDecorationsByPodAnno(ctx context.Context, c client.Client, pod *corev1.Pod) (notFound bool, podDecorations []*appsv1alpha1.PodDecoration, err error) {
 	rdRevisions := getEffectivePodDecorationRevisionFromPod(pod)
 
 	var revisions []*appsv1.ControllerRevision
@@ -134,10 +134,11 @@ func GetPodDecorationsFromPod(ctx context.Context, c client.Client, pod *corev1.
 		revision := &appsv1.ControllerRevision{}
 		if err = c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: revisionName}, revision); err != nil {
 			if errors.IsNotFound(err) {
-				klog.Errorf("fail to get add on revision %s for pod %s, [not found]: %s", revisionName, utils.ObjectKeyString(pod), err)
-				return podDecorations, nil
+				klog.Errorf("fail to get PodDecoration revision %s for pod %s, [not found]: %v", revisionName, utils.ObjectKeyString(pod), err)
+				notFound = true
+				return
 			}
-			return podDecorations, fmt.Errorf("fail to get add on revision %s for pod %s: %s", revisionName, utils.ObjectKeyString(pod), err)
+			return false, podDecorations, fmt.Errorf("fail to get PodDecoration revision %s for pod %s: %v", revisionName, utils.ObjectKeyString(pod), err)
 		}
 		revisions = append(revisions, revision)
 	}
@@ -145,7 +146,7 @@ func GetPodDecorationsFromPod(ctx context.Context, c client.Client, pod *corev1.
 	for _, revision := range revisions {
 		pd, err := GetPodDecorationFromRevision(revision)
 		if err != nil {
-			return podDecorations, fmt.Errorf("fail to get add on from revision %s for pod %s: %s", revision.Name, utils.ObjectKeyString(pod), err)
+			return false, podDecorations, fmt.Errorf("fail to get PodDecoration revision %s for pod %s: %v", revision.Name, utils.ObjectKeyString(pod), err)
 		}
 		podDecorations = append(podDecorations, pd)
 	}
