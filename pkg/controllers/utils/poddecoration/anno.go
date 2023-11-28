@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"kusionstack.io/operating/pkg/utils"
@@ -42,11 +43,20 @@ type DecorationInfo struct {
 	Revision string `json:"revision"`
 }
 
-func (d DecorationGroupRevisionInfo) Check(pd *appsv1alpha1.PodDecoration) (exist, isLatestRevision bool) {
-	info, ok := d[pd.Spec.InjectionStrategy.Group]
-	exist = ok && info.Name == pd.Name
-	isLatestRevision = exist && info.Revision == pd.Status.UpdatedRevision
-	return
+func (d DecorationGroupRevisionInfo) GetGroupPDRevision(group, rdName string) *string {
+	info, ok := d[group]
+	if ok && info.Name == rdName {
+		return &info.Revision
+	}
+	return nil
+}
+
+func (d DecorationGroupRevisionInfo) GetCurrentPDNameByGroup(group string) *string {
+	info, ok := d[group]
+	if !ok {
+		return nil
+	}
+	return &info.Name
 }
 
 func GetDecorationGroupRevisionInfo(pod *corev1.Pod) (info DecorationGroupRevisionInfo) {
@@ -67,7 +77,7 @@ func GetDecorationGroupRevisionInfo(pod *corev1.Pod) (info DecorationGroupRevisi
 func SetDecorationInfo(pod *corev1.Pod, podDecorations []*appsv1alpha1.PodDecoration) {
 	info := DecorationGroupRevisionInfo{}
 	for _, pd := range podDecorations {
-		info[pd.Spec.InjectionStrategy.Group] = &DecorationInfo{
+		info[pd.Spec.InjectStrategy.Group] = &DecorationInfo{
 			Name:     pd.Name,
 			Revision: pd.Status.UpdatedRevision,
 		}
@@ -82,8 +92,8 @@ func SetDecorationInfo(pod *corev1.Pod, podDecorations []*appsv1alpha1.PodDecora
 func ShouldUpdateDecorationInfo(pod *corev1.Pod, podDecorations []*appsv1alpha1.PodDecoration) bool {
 	info := GetDecorationGroupRevisionInfo(pod)
 	for _, pd := range podDecorations {
-		exist, isLatestRevision := info.Check(pd)
-		if !exist || !isLatestRevision {
+		revision := info.GetGroupPDRevision(pd.Spec.InjectStrategy.Group, pd.Name)
+		if revision == nil || *revision == pd.Status.UpdatedRevision {
 			return true
 		}
 	}

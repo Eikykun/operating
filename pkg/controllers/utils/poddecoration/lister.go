@@ -81,7 +81,7 @@ func PickGroupTop(podDecorations []*appsv1alpha1.PodDecoration) (res []*appsv1al
 			res = append(res, podDecorations[i])
 			continue
 		}
-		if pd.Spec.InjectionStrategy.Group == res[len(res)-1].Spec.InjectionStrategy.Group {
+		if pd.Spec.InjectStrategy.Group == res[len(res)-1].Spec.InjectStrategy.Group {
 			continue
 		}
 		res = append(res, podDecorations[i])
@@ -90,10 +90,9 @@ func PickGroupTop(podDecorations []*appsv1alpha1.PodDecoration) (res []*appsv1al
 }
 
 func isAffectedCollaSet(pd *appsv1alpha1.PodDecoration, colla *appsv1alpha1.CollaSet) bool {
-	for _, detail := range pd.Status.Details {
-		if detail.CollaSet == colla.Name {
-			return true
-		}
+	if pd.Status.IsEffective != nil && !*pd.Status.IsEffective {
+		return false
 	}
-	return false
+	sel, _ := metav1.LabelSelectorAsSelector(pd.Spec.Selector)
+	return sel.Matches(labels.Set(colla.Spec.Template.Labels))
 }

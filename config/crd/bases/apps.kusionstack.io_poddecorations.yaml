@@ -73,9 +73,14 @@ spec:
           spec:
             description: PodDecorationSpec defines the desired state of PodDecoration
             properties:
-              InjectionStrategy:
-                description: InjectionStrategy carries the strategy configuration
-                  for injection
+              historyLimit:
+                description: Indicate the number of histories to be conserved If unspecified,
+                  defaults to 20
+                format: int32
+                type: integer
+              injectStrategy:
+                description: InjectStrategy carries the strategy configuration for
+                  injection
                 properties:
                   group:
                     description: Group provides the name of the group this PodDecoration
@@ -89,11 +94,6 @@ spec:
                     format: int32
                     type: integer
                 type: object
-              historyLimit:
-                description: Indicate the number of histories to be conserved If unspecified,
-                  defaults to 20
-                format: int32
-                type: integer
               selector:
                 description: Selector is a label query over pods that should be injected
                   with PodDecoration
@@ -5397,12 +5397,6 @@ spec:
           status:
             description: PodDecorationStatus defines the observed state of PodDecoration
             properties:
-              AffectedWorkloads:
-                description: AffectedWorkloads records the CollaSet names which Pods
-                  need to be injected.
-                items:
-                  type: string
-                type: array
               collisionCount:
                 description: Count of hash collisions for the PodDecoration. The PodDecoration
                   controller uses this field as a collision avoidance mechanism when
@@ -5424,6 +5418,8 @@ spec:
                     pods:
                       items:
                         properties:
+                          isNotInjected:
+                            type: boolean
                           name:
                             type: string
                           revision:

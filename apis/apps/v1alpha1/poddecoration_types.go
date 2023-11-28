@@ -155,7 +155,7 @@ type PodDecorationUpdateStrategy struct {
 	RollingUpdate *PodDecorationRollingUpdate `json:"rollingUpdate,omitempty"`
 }
 
-type PodDecorationInjectionStrategy struct {
+type PodDecorationInjectStrategy struct {
 	// Group provides the name of the group this PodDecoration belongs to.
 	// Only one PodDecoration is active when multiple PodDecorations share the same group value.
 	Group string `json:"group,omitempty"`
@@ -191,8 +191,8 @@ type PodDecorationSpec struct {
 	// UpdateStrategy carries the strategy configuration for update.
 	UpdateStrategy PodDecorationUpdateStrategy `json:"updateStrategy,omitempty"`
 
-	// InjectionStrategy carries the strategy configuration for injection
-	InjectionStrategy PodDecorationInjectionStrategy `json:"InjectionStrategy,omitempty"`
+	// InjectStrategy carries the strategy configuration for injection
+	InjectStrategy PodDecorationInjectStrategy `json:"injectStrategy,omitempty"`
 
 	// Template includes the decoration message about pod template.
 	Template PodDecorationPodTemplate `json:"template,omitempty"`
@@ -206,7 +206,7 @@ type PodDecorationStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
 	// AffectedWorkloads records the CollaSet names which Pods need to be injected.
-	AffectedWorkloads []string `json:"AffectedWorkloads,omitempty"`
+	// AffectedWorkloads []string `json:"AffectedWorkloads,omitempty"`
 
 	// CurrentRevision, if not empty, indicates the version of the PodDecoration.
 	// +optional
@@ -220,7 +220,7 @@ type PodDecorationStatus struct {
 	// uses this field as a collision avoidance mechanism when it needs to
 	// create the name for the newest ControllerRevision.
 	// +optional
-	CollisionCount *int32 `json:"collisionCount,omitempty"`
+	CollisionCount int32 `json:"collisionCount,omitempty"`
 
 	// MatchedPods is the number of Pods whose labels are matched with this SidecarSet's selector and are created after sidecarset creates
 	MatchedPods int32 `json:"matchedPods"`
@@ -277,8 +277,9 @@ type PodDecorationWorkloadDetail struct {
 }
 
 type PodDecorationPodInfo struct {
-	Name     string `json:"name,omitempty"`
-	Revision string `json:"revision,omitempty"`
+	Name          string `json:"name,omitempty"`
+	Revision      string `json:"revision,omitempty"`
+	IsNotInjected bool   `json:"isNotInjected,omitempty"`
 }
 
 type PodDecorationCondition struct {

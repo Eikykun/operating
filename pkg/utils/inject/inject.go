@@ -43,6 +43,13 @@ func NewCacheWithFieldIndex(config *rest.Config, opts cache.Options) (cache.Cach
 		return c, err
 	}
 
+	// TODO: opts.SelectorsByObject can be used to limit cache
+	//opts.SelectorsByObject = cache.SelectorsByObject{
+	//	&corev1.Pod{}: {
+	//		Label: labels.Set(map[string]string{v1alpha1.ControlledByKusionStackLabelKey: "true"}).AsSelector(),
+	//	},
+	//}
+
 	runtime.Must(c.IndexField(
 		context.TODO(),
 		&corev1.Pod{},
@@ -80,7 +87,7 @@ func NewCacheWithFieldIndex(config *rest.Config, opts cache.Options) (cache.Cach
 		&appsv1alpha1.PodDecoration{},
 		FieldIndexPodDecorationGroup,
 		func(obj client.Object) []string {
-			return []string{obj.(*appsv1alpha1.PodDecoration).Spec.InjectionStrategy.Group}
+			return []string{obj.(*appsv1alpha1.PodDecoration).Spec.InjectStrategy.Group}
 		}))
 
 	runtime.Must(c.IndexField(

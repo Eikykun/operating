@@ -18,6 +18,7 @@ package poddecoration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -27,8 +28,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
+	controllerutils "kusionstack.io/operating/pkg/controllers/utils"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -69,6 +72,10 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 	managerClient := mgr.GetClient()
+	err = c.Watch(&source.Kind{Type: &appsv1alpha1.CollaSet{}}, &collaSetHandler{Client: managerClient})
+	if err != nil {
+		return err
+	}
 	// Watch update of Pods which can be selected by PodDecoration
 	err = c.Watch(&source.Kind{Type: &corev1.Pod{}}, handler.EnqueueRequestsFromMapFunc(func(podObject client.Object) []reconcile.Request {
 		pdList := &appsv1alpha1.PodDecorationList{}
@@ -77,13 +84,9 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		}
 		var requests []reconcile.Request
 		for _, pd := range pdList.Items {
-			selector, err := metav1.LabelSelectorAsSelector(pd.Spec.Selector)
-			if err != nil {
-				continue
-			}
-
+			selector, _ := metav1.LabelSelectorAsSelector(pd.Spec.Selector)
 			if selector.Matches(labels.Set(podObject.GetLabels())) {
-				requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: podObject.GetNamespace(), Name: podObject.GetName()}})
+				requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: podObject.GetNamespace(), Name: pd.GetName()}})
 			}
 		}
 		return requests
@@ -113,8 +116,9 @@ type ReconcilePodDecoration struct {
 
 // Reconcile reads that state of the cluster for a PodDecoration object and makes changes based on the state read
 // and what is in the PodDecoration.Spec
-func (r *ReconcilePodDecoration) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
+func (r *ReconcilePodDecoration) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, reconcileErr error) {
 	// Fetch the PodDecoration instance
+	klog.Infof("Reconcile PodDecoration %v", request)
 	instance := &appsv1alpha1.PodDecoration{}
 	if err := r.Get(context.TODO(), request.NamespacedName, instance); err != nil {
 		// Object not found, return.  Created objects are automatically garbage collected.
@@ -125,6 +129,11 @@ func (r *ReconcilePodDecoration) Reconcile(ctx context.Context, request reconcil
 	if !statusUpToDateExpectation.SatisfiedExpectations(key, instance.ResourceVersion) {
 		klog.Infof("PodDecoration %s is not satisfied with updated status, requeue after", key)
 		return reconcile.Result{Requeue: true}, nil
+	}
+	if instance.DeletionTimestamp != nil && r.isPDEscaped(instance) {
+		return reconcile.Result{}, r.clearProtection(ctx, instance)
+	} else if err := r.protectPD(ctx, instance); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	currentRevision, updatedRevision, _, collisionCount, _, err := r.revisionManager.ConstructRevisions(instance, false)
@@ -140,12 +149,17 @@ func (r *ReconcilePodDecoration) Reconcile(ctx context.Context, request reconcil
 		ObservedGeneration: instance.Generation,
 		CurrentRevision:    currentRevision.Name,
 		UpdatedRevision:    updatedRevision.Name,
-		CollisionCount:     collisionCount,
+		CollisionCount:     *collisionCount,
 	}
 	err = r.calculateStatus(ctx, instance, newStatus, affectedPods, affectedCollaSets)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
+	fc := func(obj any) {
+		byt, _ := json.MarshalIndent(obj, "", "  ")
+		fmt.Printf("%s\n", string(byt))
+	}
+	fc(instance.Status)
 	return reconcile.Result{}, r.updateStatus(ctx, instance, newStatus)
 }
 
@@ -156,25 +170,59 @@ func (r *ReconcilePodDecoration) calculateStatus(
 	affectedPods map[string][]*corev1.Pod,
 	affectedCollaSets []*appsv1alpha1.CollaSet) error {
 
-	heaviest, err := utilspoddecoration.GetHeaviestPDByGroup(ctx, r.Client, instance.Spec.InjectionStrategy.Group)
+	heaviest, err := utilspoddecoration.GetHeaviestPDByGroup(ctx, r.Client, instance.Spec.InjectStrategy.Group)
 	if err != nil {
 		return err
 	}
-	status.IsEffective = BoolPoint(heaviest == nil ||
-		heaviest.Spec.InjectionStrategy.Group == heaviest.Spec.InjectionStrategy.Group)
-
-	// TODO calculateStatus
-
+	status.IsEffective = BoolPoint((heaviest == nil || heaviest.Name == instance.Name) && instance.DeletionTimestamp == nil)
+	status.MatchedPods = 0
+	status.UpdatedPods = 0
+	status.UpdatedReadyPods = 0
+	var details []appsv1alpha1.PodDecorationWorkloadDetail
+	for _, collaSet := range affectedCollaSets {
+		pods := affectedPods[collaSet.Name]
+		detail := appsv1alpha1.PodDecorationWorkloadDetail{
+			AffectedReplicas: int32(len(pods)),
+			CollaSet:         collaSet.Name,
+		}
+		status.MatchedPods += int32(len(pods))
+		for _, pod := range pods {
+			currentRevision := utilspoddecoration.GetDecorationGroupRevisionInfo(pod).
+				GetGroupPDRevision(instance.Spec.InjectStrategy.Group, instance.Name)
+			podInfo := appsv1alpha1.PodDecorationPodInfo{
+				Name: pod.Name,
+			}
+			if currentRevision != nil {
+				podInfo.Revision = *currentRevision
+				if *currentRevision == status.UpdatedRevision {
+					status.UpdatedPods++
+					if controllerutils.IsPodReady(pod) {
+						status.UpdatedReadyPods++
+					}
+				}
+			} else {
+				podInfo.IsNotInjected = true
+			}
+			detail.Pods = append(detail.Pods, podInfo)
+		}
+		details = append(details, detail)
+	}
+	status.Details = details
 	return nil
 }
 
 func (r *ReconcilePodDecoration) updateStatus(
 	ctx context.Context,
 	instance *appsv1alpha1.PodDecoration,
-	status *appsv1alpha1.PodDecorationStatus) error {
+	status *appsv1alpha1.PodDecorationStatus) (err error) {
 	if equality.Semantic.DeepEqual(instance.Status, status) {
 		return nil
 	}
+	defer func() {
+		if err != nil {
+			statusUpToDateExpectation.ExpectUpdate(utils.ObjectKeyString(instance), instance.ResourceVersion)
+		}
+	}()
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		instance.Status = *status
 		updateErr := r.Status().Update(ctx, instance)
@@ -198,28 +246,56 @@ func (r *ReconcilePodDecoration) filterOutPodAndCollaSet(
 	if instance.Spec.Selector != nil {
 		sel, err = metav1.LabelSelectorAsSelector(instance.Spec.Selector)
 	}
+	affectedPods = map[string][]*corev1.Pod{}
 	if err = r.List(ctx, podList, &client.ListOptions{
 		Namespace:     instance.Namespace,
 		LabelSelector: sel,
 	}); err != nil || len(podList.Items) == 0 {
 		return
 	}
-	affectedPods = map[string][]*corev1.Pod{}
 	for i := 0; i < len(podList.Items); i++ {
 		ownerRef := metav1.GetControllerOf(&podList.Items[i])
 		if ownerRef != nil && ownerRef.Kind == "CollaSet" {
 			affectedPods[ownerRef.Name] = append(affectedPods[ownerRef.Name], &podList.Items[i])
 		}
 	}
-	affectedCollaSets = make([]*appsv1alpha1.CollaSet, 0, len(affectedPods))
-	for name := range affectedPods {
-		colla := &appsv1alpha1.CollaSet{}
-		if err = r.Get(ctx, types.NamespacedName{Name: name, Namespace: instance.Namespace}, colla); err != nil {
-			return
+	collaSetList := &appsv1alpha1.CollaSetList{}
+	if err = r.List(ctx, collaSetList, &client.ListOptions{Namespace: instance.Namespace}); err != nil {
+		return
+	}
+	for i := range collaSetList.Items {
+		if sel == nil || sel.Matches(labels.Set(collaSetList.Items[i].Spec.Template.Labels)) {
+			affectedCollaSets = append(affectedCollaSets, &collaSetList.Items[i])
 		}
-		affectedCollaSets = append(affectedCollaSets, colla)
 	}
 	return
+}
+
+func (r *ReconcilePodDecoration) protectPD(ctx context.Context, pd *appsv1alpha1.PodDecoration) error {
+	if controllerutil.ContainsFinalizer(pd, appsv1alpha1.ProtectFinalizer) {
+		return nil
+	}
+	controllerutil.AddFinalizer(pd, appsv1alpha1.ProtectFinalizer)
+	return r.Update(ctx, pd)
+}
+
+func (r *ReconcilePodDecoration) clearProtection(ctx context.Context, pd *appsv1alpha1.PodDecoration) error {
+	if !controllerutil.ContainsFinalizer(pd, appsv1alpha1.ProtectFinalizer) {
+		return nil
+	}
+	controllerutil.RemoveFinalizer(pd, appsv1alpha1.ProtectFinalizer)
+	return r.Update(ctx, pd)
+}
+
+func (r *ReconcilePodDecoration) isPDEscaped(rd *appsv1alpha1.PodDecoration) bool {
+	for _, detail := range rd.Status.Details {
+		for _, po := range detail.Pods {
+			if !po.IsNotInjected {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func BoolPoint(val bool) *bool {

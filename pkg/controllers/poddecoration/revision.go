@@ -62,7 +62,7 @@ func (roa *revisionOwnerAdapter) GetSelector(obj metav1.Object) *metav1.LabelSel
 
 func (roa *revisionOwnerAdapter) GetCollisionCount(obj metav1.Object) *int32 {
 	ips, _ := obj.(*appsalphav1.PodDecoration)
-	return ips.Status.CollisionCount
+	return &ips.Status.CollisionCount
 }
 
 func (roa *revisionOwnerAdapter) GetHistoryLimit(obj metav1.Object) int32 {

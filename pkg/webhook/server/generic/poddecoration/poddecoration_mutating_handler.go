@@ -43,5 +43,5 @@ func (h *MutatingHandler) Handle(ctx context.Context, req admission.Request) (re
 }
 
 func (h *MutatingHandler) mutateCreate() {
-	//set default InjectionStrategy.Weight
+	//set default InjectStrategy.Weight
 }

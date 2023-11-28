@@ -34,13 +34,13 @@ func (br PodDecorations) Len() int {
 }
 
 func (br PodDecorations) Less(i, j int) bool {
-	if br[i].Spec.InjectionStrategy.Group == br[j].Spec.InjectionStrategy.Group {
-		if *br[i].Spec.InjectionStrategy.Weight == *br[j].Spec.InjectionStrategy.Weight {
+	if br[i].Spec.InjectStrategy.Group == br[j].Spec.InjectStrategy.Group {
+		if *br[i].Spec.InjectStrategy.Weight == *br[j].Spec.InjectStrategy.Weight {
 			br[i].CreationTimestamp.After(br[j].CreationTimestamp.Time)
 		}
-		return *br[i].Spec.InjectionStrategy.Weight > *br[j].Spec.InjectionStrategy.Weight
+		return *br[i].Spec.InjectStrategy.Weight > *br[j].Spec.InjectStrategy.Weight
 	}
-	return br[i].Spec.InjectionStrategy.Group < br[j].Spec.InjectionStrategy.Group
+	return br[i].Spec.InjectStrategy.Group < br[j].Spec.InjectStrategy.Group
 }
 
 func (br PodDecorations) Swap(i, j int) {

@@ -24,6 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
+	utilspoddecoration "kusionstack.io/operating/pkg/controllers/utils/poddecoration"
+	commonutils "kusionstack.io/operating/pkg/utils"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -39,7 +41,6 @@ import (
 	collasetutils "kusionstack.io/operating/pkg/controllers/collaset/utils"
 	controllerutils "kusionstack.io/operating/pkg/controllers/utils"
 	"kusionstack.io/operating/pkg/controllers/utils/expectations"
-	utilspoddecoration "kusionstack.io/operating/pkg/controllers/utils/poddecoration"
 	"kusionstack.io/operating/pkg/controllers/utils/podopslifecycle"
 	"kusionstack.io/operating/pkg/controllers/utils/revision"
 	"kusionstack.io/operating/pkg/utils/mixin"
@@ -86,6 +87,11 @@ func AddToMgr(mgr ctrl.Manager, r reconcile.Reconciler) error {
 	}
 
 	err = c.Watch(&source.Kind{Type: &appsv1alpha1.CollaSet{}}, &handler.EnqueueRequestForObject{})
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(&source.Kind{Type: &appsv1alpha1.PodDecoration{}}, &podDecorationHandler{})
 	if err != nil {
 		return err
 	}
@@ -148,10 +154,10 @@ func (r *CollaSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if !controllerutil.ContainsFinalizer(instance, preReclaimFinalizer) {
 		return ctrl.Result{}, controllerutils.AddFinalizer(context.TODO(), r.Client, instance, preReclaimFinalizer)
 	}
-
+	key := commonutils.ObjectKeyString(instance)
 	currentRevision, updatedRevision, revisions, collisionCount, _, err := r.revisionManager.ConstructRevisions(instance, false)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("fail to construct revision for CollaSet %s/%s: %s", instance.Namespace, instance.Name, err)
+		return ctrl.Result{}, fmt.Errorf("fail to construct revision for CollaSet %s: %s", key, err)
 	}
 
 	newStatus := &appsv1alpha1.CollaSetStatus{
@@ -166,6 +172,16 @@ func (r *CollaSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		CurrentRevision: currentRevision,
 		UpdatedRevision: updatedRevision,
 		NewStatus:       newStatus,
+	}
+	resources.PodDecorations, err = utilspoddecoration.GetEffectiveDecorationsByCollaSet(ctx, r.Client, instance)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("fail to get effective pod decorations by CollaSet %s: %s", key, err)
+	}
+	for _, pd := range resources.PodDecorations {
+		if pd.Status.ObservedGeneration != pd.Generation {
+			logger.Info("wait for PodDecoration ObservedGeneration", "CollaSet", key, "PodDecoration", commonutils.ObjectKeyString(pd))
+			return ctrl.Result{}, nil
+		}
 	}
 
 	requeueAfter, newStatus, err := r.DoReconcile(ctx, instance, resources)
@@ -199,16 +215,6 @@ func (r *CollaSetReconciler) doSync(
 	synced, podWrappers, ownedIDs, err := r.syncControl.SyncPods(ctx, instance, resources)
 	if err != nil || synced {
 		return podWrappers, nil, err
-	}
-
-	resources.PodDecorations, err = utilspoddecoration.GetEffectiveDecorationsByCollaSet(ctx, r.Client, instance)
-	if err != nil {
-		return podWrappers, nil, err
-	}
-	for _, pd := range resources.PodDecorations {
-		if pd.Status.ObservedGeneration != pd.Generation {
-
-		}
 	}
 
 	scaling, scaleRequeueAfter, err := r.syncControl.Scale(ctx, instance, resources, podWrappers, ownedIDs)
@@ -319,8 +325,4 @@ func requeueResult(requeueTime *time.Duration) reconcile.Result {
 		return reconcile.Result{RequeueAfter: *requeueTime}
 	}
 	return reconcile.Result{}
-}
-
-func duration(tm time.Duration) *time.Duration {
-	return &tm
 }

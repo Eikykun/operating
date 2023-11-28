@@ -386,29 +386,27 @@ func (sc *RealSyncControl) Update(
 	ctx context.Context,
 	cls *appsv1alpha1.CollaSet,
 	resources *collasetutils.RelatedResources,
-	podWrapers []*collasetutils.PodWrapper,
+	podWrappers []*collasetutils.PodWrapper,
 	ownedIDs map[int]*appsv1alpha1.ContextDetail) (bool, *time.Duration, error) {
 
 	logger := sc.logger.WithValues("collaset", commonutils.ObjectKeyString(cls))
 	var recordedRequeueAfter *time.Duration
 	// 1. scan and analysis pods update info
-	podUpdateInfos := attachPodUpdateInfo(podWrapers, resources)
+	podUpdateInfos := attachPodUpdateInfo(podWrappers, resources)
 
 	// 2. decide Pod update candidates
 	podToUpdate := decidePodToUpdate(cls, podUpdateInfos)
 
 	// 3. prepare Pods to begin PodOpsLifecycle
 	podCh := make(chan *PodUpdateInfo, len(podToUpdate))
-	for _, podInfo := range podToUpdate {
-		if podInfo.IsUpdatedRevision {
+	for i, podInfo := range podToUpdate {
+		if podInfo.IsUpdatedRevision && !podInfo.PodDecorationChanged {
 			continue
 		}
-
 		if podopslifecycle.IsDuringOps(utils.UpdateOpsLifecycleAdapter, podInfo) {
 			continue
 		}
-
-		podCh <- podInfo
+		podCh <- podToUpdate[i]
 	}
 
 	// 4. begin podOpsLifecycle parallel
@@ -440,9 +438,9 @@ func (sc *RealSyncControl) Update(
 	needUpdateContext := false
 	for i := range podToUpdate {
 		podInfo := podToUpdate[i]
-		requeueAfter, allowed := podopslifecycle.AllowOps(utils.UpdateOpsLifecycleAdapter, realValue(cls.Spec.UpdateStrategy.OperationDelaySeconds), podInfo)
+		requeueAfter, allowed := podopslifecycle.AllowOps(utils.UpdateOpsLifecycleAdapter, realValue(cls.Spec.UpdateStrategy.OperationDelaySeconds), podInfo.Pod)
 		if !allowed {
-			sc.recorder.Eventf(podInfo, corev1.EventTypeNormal, "PodUpdateLifecycle", "Pod is not allowed to update")
+			sc.recorder.Eventf(podInfo, corev1.EventTypeNormal, "PodUpdateLifecycle", "Pod %s is not allowed to update", commonutils.ObjectKeyString(podInfo.Pod))
 			continue
 		}
 
@@ -489,7 +487,6 @@ func (sc *RealSyncControl) Update(
 	updater := newPodUpdater(ctx, sc.client, cls)
 	succCount, err = controllerutils.SlowStartBatch(len(podCh), controllerutils.SlowStartInitialBatchSize, false, func(_ int, _ error) error {
 		podInfo := <-podCh
-
 		// analyse Pod to get update information
 		inPlaceSupport, onlyMetadataChanged, updatedPod, err := updater.AnalyseAndGetUpdatedPod(resources.UpdatedRevision, podInfo)
 		if err != nil {

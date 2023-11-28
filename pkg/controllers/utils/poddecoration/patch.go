@@ -17,9 +17,8 @@ limitations under the License.
 package poddecoration
 
 import (
-	"errors"
-
 	corev1 "k8s.io/api/core/v1"
+	"kusionstack.io/operating/pkg/utils"
 
 	appsv1alpha1 "kusionstack.io/operating/apis/apps/v1alpha1"
 	"kusionstack.io/operating/pkg/controllers/utils/poddecoration/patch"
@@ -58,7 +57,7 @@ func PatchPodDecoration(pod *corev1.Pod, template *appsv1alpha1.PodDecorationPod
 func PatchListOfDecorations(pod *corev1.Pod, podDecorations []*appsv1alpha1.PodDecoration) (err error) {
 	for i := range podDecorations {
 		if patchErr := PatchPodDecoration(pod, &podDecorations[i].Spec.Template); patchErr != nil {
-			err = errors.Join(err, patchErr)
+			err = utils.Join(err, patchErr)
 		}
 	}
 	SetDecorationInfo(pod, podDecorations)

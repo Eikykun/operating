@@ -49,19 +49,19 @@ func (h *ValidatingHandler) Handle(ctx context.Context, req admission.Request) (
 }
 
 func (h *ValidatingHandler) validateCreate(newPd *appsv1alpha1.PodDecoration) error {
-	if newPd.Spec.InjectionStrategy.Group == "" {
-		return fmt.Errorf("PodDecoration %s InjectionStrategy.Group can not be empty", utils.ObjectKeyString(newPd))
+	if newPd.Spec.InjectStrategy.Group == "" {
+		return fmt.Errorf("PodDecoration %s InjectStrategy.Group can not be empty", utils.ObjectKeyString(newPd))
 	}
 	//pdList := &appsv1alpha1.PodDecorationList{}
 	//if err := h.Client.List(context.TODO(), pdList, &client.ListOptions{Namespace: newPd.Namespace}); err != nil {
 	//	return err
 	//}
 	//for _, pd := range pdList.Items {
-	//	if pd.Spec.InjectionStrategy.Group != newPd.Spec.InjectionStrategy.Group {
+	//	if pd.Spec.InjectStrategy.Group != newPd.Spec.InjectStrategy.Group {
 	//		continue
 	//	}
-	//	if newPd.Spec.InjectionStrategy.Weight == nil {
-	//		return fmt.Errorf("PodDecoration %s InjectionStrategy.Weight can not be nil", utils.ObjectKeyString(newPd))
+	//	if newPd.Spec.InjectStrategy.Weight == nil {
+	//		return fmt.Errorf("PodDecoration %s InjectStrategy.Weight can not be nil", utils.ObjectKeyString(newPd))
 	//	}
 	//}
 	return nil

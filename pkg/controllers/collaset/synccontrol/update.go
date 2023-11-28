@@ -20,8 +20,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sort"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -325,7 +326,7 @@ func (u *inPlaceIfPossibleUpdater) diffPod(currentPod, updatedPod *corev1.Pod) (
 }
 
 func (u *inPlaceIfPossibleUpdater) GetPodUpdateFinishStatus(podUpdateInfo *PodUpdateInfo) (finished bool, msg string, err error) {
-	if !podUpdateInfo.IsUpdatedRevision {
+	if !podUpdateInfo.IsUpdatedRevision || podUpdateInfo.PodDecorationChanged {
 		return false, "not updated revision", nil
 	}
 
@@ -413,5 +414,5 @@ func (u *recreatePodUpdater) AnalyseAndGetUpdatedPod(_ *appsv1.ControllerRevisio
 
 func (u *recreatePodUpdater) GetPodUpdateFinishStatus(podInfo *PodUpdateInfo) (finished bool, msg string, err error) {
 	// Recreate policy alway treat Pod as update finished
-	return podInfo.IsUpdatedRevision, "", nil
+	return podInfo.IsUpdatedRevision && !podInfo.PodDecorationChanged, "", nil
 }
