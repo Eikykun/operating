@@ -39,6 +39,7 @@ import (
 	collasetutils "kusionstack.io/operating/pkg/controllers/collaset/utils"
 	controllerutils "kusionstack.io/operating/pkg/controllers/utils"
 	"kusionstack.io/operating/pkg/controllers/utils/expectations"
+	utilspoddecoration "kusionstack.io/operating/pkg/controllers/utils/poddecoration"
 	"kusionstack.io/operating/pkg/controllers/utils/podopslifecycle"
 	"kusionstack.io/operating/pkg/controllers/utils/revision"
 	commonutils "kusionstack.io/operating/pkg/utils"
@@ -166,23 +167,17 @@ func (r *CollaSetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		UpdatedRevision: updatedRevision.Name,
 	}
 
+	getter, err := utilspoddecoration.NewPodDecorationGetter(ctx, r.Client, instance.Namespace)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	resources := &collasetutils.RelatedResources{
 		Revisions:       revisions,
 		CurrentRevision: currentRevision,
 		UpdatedRevision: updatedRevision,
 		NewStatus:       newStatus,
+		PDGetter:        getter,
 	}
-	resources.PDGetter, err = utils.NewPodDecorationGetter(ctx, r.Client, instance.Namespace)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("fail to get effective pod decorations by CollaSet %s: %s", key, err)
-	}
-	for _, pd := range resources.PDGetter.GetLatestDecorations() {
-		if pd.Status.ObservedGeneration != pd.Generation {
-			logger.Info("wait for PodDecoration ObservedGeneration", "CollaSet", key, "PodDecoration", commonutils.ObjectKeyString(pd))
-			return ctrl.Result{}, nil
-		}
-	}
-
 	requeueAfter, newStatus, err := r.DoReconcile(ctx, instance, resources)
 	// update status anyway
 	if err := r.updateStatus(ctx, instance, newStatus); err != nil {

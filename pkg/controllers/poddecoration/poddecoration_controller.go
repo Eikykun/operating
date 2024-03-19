@@ -63,6 +63,9 @@ func newReconciler(mgr manager.Manager) reconcile.Reconciler {
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Create a new controller
+	if err := addRunner(mgr); err != nil {
+		return err
+	}
 	c, err := controller.New("poddecoration-controller", mgr, controller.Options{Reconciler: r})
 	if err != nil {
 		return err
@@ -170,7 +173,6 @@ func (r *ReconcilePodDecoration) calculateStatus(
 	affectedCollaSets sets.String,
 	disablePodDetail bool) error {
 
-	hasEffectivePods := false
 	status.MatchedPods = 0
 	status.UpdatedPods = 0
 	status.UpdatedReadyPods = 0
@@ -187,7 +189,6 @@ func (r *ReconcilePodDecoration) calculateStatus(
 		for _, pod := range pods {
 			currentRevision := utilspoddecoration.GetDecorationRevisionInfo(pod).GetRevision(instance.Name)
 			if currentRevision != nil {
-				hasEffectivePods = true
 				status.InjectedPods++
 				if *currentRevision == status.UpdatedRevision {
 					status.UpdatedPods++
@@ -212,7 +213,6 @@ func (r *ReconcilePodDecoration) calculateStatus(
 		}
 		details = append(details, detail)
 	}
-	status.IsEffective = BoolPointer(instance.DeletionTimestamp == nil || hasEffectivePods)
 	if status.CurrentRevision != status.UpdatedRevision &&
 		status.UpdatedPods == status.MatchedPods &&
 		r.allCollaSetsSatisfyReplicas(affectedCollaSets, instance.Namespace) {

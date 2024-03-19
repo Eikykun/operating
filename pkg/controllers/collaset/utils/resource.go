@@ -20,6 +20,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 
 	appsv1alpha1 "kusionstack.io/operating/apis/apps/v1alpha1"
+	utilspoddecoration "kusionstack.io/operating/pkg/controllers/utils/poddecoration"
 )
 
 type RelatedResources struct {
@@ -27,7 +28,7 @@ type RelatedResources struct {
 	CurrentRevision *appsv1.ControllerRevision
 	UpdatedRevision *appsv1.ControllerRevision
 
-	PDGetter PodDecorationGetter
+	PDGetter utilspoddecoration.Getter
 
 	NewStatus *appsv1alpha1.CollaSetStatus
 }

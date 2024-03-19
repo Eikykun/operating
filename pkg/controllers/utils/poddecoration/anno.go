@@ -69,7 +69,13 @@ func setDecorationInfo(pod *corev1.Pod, podDecorations map[string]*appsv1alpha1.
 	if pod.Annotations == nil {
 		pod.Annotations = map[string]string{}
 	}
+	if pod.Labels == nil {
+		pod.Labels = map[string]string{}
+	}
 	pod.Annotations[appsv1alpha1.AnnotationPodDecorationRevision] = GetDecorationInfoString(podDecorations)
+	for revision, pd := range podDecorations {
+		pod.Labels[appsv1alpha1.PodDecorationLabelPrefix+pd.Name] = revision
+	}
 }
 
 func GetDecorationInfoString(podDecorations map[string]*appsv1alpha1.PodDecoration) string {
