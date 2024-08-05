@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/retry"
@@ -45,6 +46,11 @@ import (
 	"kusionstack.io/operating/pkg/controllers/utils/poddecoration/strategy"
 	"kusionstack.io/operating/pkg/controllers/utils/revision"
 	"kusionstack.io/operating/pkg/utils"
+	"kusionstack.io/operating/pkg/utils/mixin"
+)
+
+const (
+	controllerName = "poddecoration-controller"
 )
 
 // Add creates a new PodDecoration Controller and adds it to the Manager with default RBAC.
@@ -56,6 +62,7 @@ func Add(mgr manager.Manager) error {
 // newReconciler returns a new reconcile.Reconciler
 func newReconciler(mgr manager.Manager) reconcile.Reconciler {
 	return &ReconcilePodDecoration{
+		ReconcilerMixin: mixin.NewReconcilerMixin(controllerName, mgr),
 		Client:          mgr.GetClient(),
 		revisionManager: revision.NewRevisionManager(mgr.GetClient(), mgr.GetScheme(), &revisionOwnerAdapter{}),
 	}
@@ -102,6 +109,7 @@ var (
 // ReconcilePodDecoration reconciles a PodDecoration object
 type ReconcilePodDecoration struct {
 	client.Client
+	*mixin.ReconcilerMixin
 	revisionManager *revision.RevisionManager
 }
 
@@ -133,7 +141,7 @@ func (r *ReconcilePodDecoration) Reconcile(ctx context.Context, request reconcil
 	if instance.DeletionTimestamp != nil {
 		strategy.SharedStrategyController.DeletePodDecoration(instance)
 		statusUpToDateExpectation.DeleteExpectations(key)
-		return reconcile.Result{}, r.clearProtection(ctx, instance)
+		return reconcile.Result{}, r.tryClearProtection(ctx, instance)
 	}
 	if err := r.protectPD(ctx, instance); err != nil {
 		return reconcile.Result{}, err
@@ -253,6 +261,21 @@ func (r *ReconcilePodDecoration) allCollaSetsSatisfyReplicas(collaSets sets.Stri
 	return true
 }
 
+func (r *ReconcilePodDecoration) shouldEscape(ctx context.Context, instance *appsv1alpha1.PodDecoration) bool {
+	podList := &corev1.PodList{}
+	sel := labels.NewSelector()
+	req, _ := labels.NewRequirement(appsv1alpha1.PodDecorationLabelPrefix+instance.Name, selection.Exists, []string{})
+	sel.Add(*req)
+	if err := r.List(ctx, podList, &client.ListOptions{
+		Namespace:     instance.Namespace,
+		LabelSelector: sel,
+	}); err != nil {
+		klog.Errorf("failed to list pods: %v", err)
+		return false
+	}
+	return len(podList.Items) == 0
+}
+
 func (r *ReconcilePodDecoration) updateStatus(
 	ctx context.Context,
 	instance *appsv1alpha1.PodDecoration,
@@ -307,7 +330,10 @@ func (r *ReconcilePodDecoration) protectPD(ctx context.Context, pd *appsv1alpha1
 	return r.Update(ctx, pd)
 }
 
-func (r *ReconcilePodDecoration) clearProtection(ctx context.Context, pd *appsv1alpha1.PodDecoration) error {
+func (r *ReconcilePodDecoration) tryClearProtection(ctx context.Context, pd *appsv1alpha1.PodDecoration) error {
+	if !r.shouldEscape(ctx, pd) {
+		return nil
+	}
 	if !controllerutil.ContainsFinalizer(pd, appsv1alpha1.ProtectFinalizer) {
 		return nil
 	}
